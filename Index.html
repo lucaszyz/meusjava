@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gram Slam</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                500: '#0f766e',
+                600: '#0d5f58'
+              }
+            }
+          }
+        }
+      };
+    </script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <?!= include('Styles'); ?>
+  </head>
+  <body class="bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-100">
+    <div id="app" class="min-h-screen">
+      <section id="loginScreen" class="min-h-screen grid place-items-center px-4">
+        <div class="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-8">
+          <h1 class="text-3xl font-bold mb-2">🎾 Gram Slam</h1>
+          <p class="text-slate-500 mb-6">Gestão completa de projeto de tênis</p>
+          <form id="loginForm" class="space-y-4">
+            <input class="input" name="username" placeholder="Usuário" required value="admin" />
+            <input
+              class="input"
+              type="password"
+              name="password"
+              placeholder="Senha"
+              required
+              value="grandslam123"
+            />
+            <button class="btn-primary w-full">Entrar</button>
+          </form>
+          <p id="loginError" class="text-red-500 mt-4 text-sm hidden"></p>
+        </div>
+      </section>
+
+      <section id="dashboardScreen" class="hidden">
+        <header class="bg-white/80 dark:bg-slate-900/80 backdrop-blur border-b border-slate-200 dark:border-slate-800">
+          <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+            <h2 class="font-bold text-xl">Gram Slam Dashboard</h2>
+            <div class="flex items-center gap-2">
+              <button id="themeToggle" class="btn-secondary"><i class="fa-solid fa-moon"></i></button>
+              <button id="reloadDataBtn" class="btn-secondary"><i class="fa-solid fa-rotate"></i></button>
+            </div>
+          </div>
+        </header>
+
+        <main class="max-w-7xl mx-auto p-4 space-y-6">
+          <section class="grid md:grid-cols-5 gap-4" id="statsCards"></section>
+
+          <section class="grid lg:grid-cols-3 gap-4">
+            <div class="card lg:col-span-2">
+              <h3 class="section-title">Ocupação de Quadras (7 dias)</h3>
+              <canvas id="occupancyChart" height="110"></canvas>
+            </div>
+            <div class="card">
+              <h3 class="section-title">Top 10 Ranking</h3>
+              <div id="rankingTop10" class="space-y-2"></div>
+            </div>
+          </section>
+
+          <section class="grid xl:grid-cols-2 gap-4">
+            <div class="card">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="section-title">Alunos</h3>
+                <button class="btn-primary" onclick="openAlunoModal()">Novo aluno</button>
+              </div>
+              <div class="flex gap-2 mb-3">
+                <input id="searchAlunos" class="input" placeholder="Busca global..." />
+                <select id="filterNivel" class="input max-w-44">
+                  <option value="">Todos níveis</option>
+                  <option>iniciante</option>
+                  <option>intermediário</option>
+                  <option>avançado</option>
+                </select>
+              </div>
+              <div id="alunosTable" class="table-wrap"></div>
+            </div>
+
+            <div class="card">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="section-title">Turmas</h3>
+                <button class="btn-primary" onclick="openTurmaModal()">Nova turma</button>
+              </div>
+              <div id="turmasList" class="space-y-2"></div>
+            </div>
+          </section>
+
+          <section class="grid xl:grid-cols-2 gap-4">
+            <div class="card">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="section-title">Reservas de Quadra</h3>
+                <button class="btn-primary" onclick="openReservaModal()">Nova reserva</button>
+              </div>
+              <div class="flex gap-2 mb-3">
+                <input id="filterDateReserva" type="date" class="input max-w-48" />
+                <select id="filterTipoReserva" class="input max-w-40">
+                  <option value="">Todos tipos</option>
+                  <option value="aula">aula</option>
+                  <option value="jogo">jogo</option>
+                  <option value="livre">livre</option>
+                </select>
+              </div>
+              <div id="reservasCalendar" class="table-wrap"></div>
+            </div>
+
+            <div class="card">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="section-title">Barragem (Partidas)</h3>
+                <button class="btn-primary" onclick="openPartidaModal()">Registrar partida</button>
+              </div>
+              <div id="partidasList" class="space-y-2 mb-4"></div>
+              <button class="btn-secondary w-full" onclick="exportar('ranking')">
+                Exportar ranking (JSON)
+              </button>
+            </div>
+          </section>
+
+          <section class="card">
+            <h3 class="section-title">Financeiro (estrutura pronta)</h3>
+            <div class="grid md:grid-cols-3 gap-3 text-sm">
+              <div class="pill">Mensalidade de alunos ✅ (campo pronto)</div>
+              <div class="pill">Pagamento de aulas ✅ (campo pronto)</div>
+              <div class="pill">Reserva paga ✅ (campo pronto)</div>
+            </div>
+          </section>
+        </main>
+      </section>
+    </div>
+
+    <div id="modalRoot"></div>
+    <?!= include('App'); ?>
+  </body>
+</html>
