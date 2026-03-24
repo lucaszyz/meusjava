@@ -1,0 +1,296 @@
+<script>
+  const state = {
+    token: localStorage.getItem('gramSlamToken') || '',
+    data: { alunos: [], turmas: [], presencas: [], reservas: [], ranking: [], partidas: [], aulasHistorico: [] },
+    occupancyChart: null
+  };
+
+  document.addEventListener('DOMContentLoaded', () => {
+    bindEvents();
+    if (localStorage.getItem('gramSlamDark') === '1') document.documentElement.classList.add('dark');
+    state.token ? loadDashboard() : showLogin();
+  });
+
+  function bindEvents() {
+    document.getElementById('loginForm').addEventListener('submit', onLogin);
+    document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+    document.getElementById('reloadDataBtn').addEventListener('click', fetchInitialData);
+    document.getElementById('searchAlunos').addEventListener('input', renderAlunos);
+    document.getElementById('filterNivel').addEventListener('change', renderAlunos);
+    document.getElementById('filterDateReserva').addEventListener('change', renderReservas);
+    document.getElementById('filterTipoReserva').addEventListener('change', renderReservas);
+  }
+
+  function showLogin() {
+    loginScreen.classList.remove('hidden');
+    dashboardScreen.classList.add('hidden');
+  }
+
+  function loadDashboard() {
+    loginScreen.classList.add('hidden');
+    dashboardScreen.classList.remove('hidden');
+    fetchInitialData();
+  }
+
+  function onLogin(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const payload = Object.fromEntries(formData.entries());
+
+    google.script.run.withSuccessHandler((res) => {
+      if (!res.ok) {
+        loginError.textContent = res.message;
+        loginError.classList.remove('hidden');
+        return;
+      }
+      state.token = res.token;
+      localStorage.setItem('gramSlamToken', res.token);
+      loadDashboard();
+    }).login(payload);
+  }
+
+  function fetchInitialData() {
+    google.script.run.withSuccessHandler((data) => {
+      state.data = data;
+      renderAll();
+    }).withFailureHandler(handleError).getInitialData(state.token);
+  }
+
+  function renderAll() {
+    renderStats();
+    renderAlunos();
+    renderTurmas();
+    renderReservas();
+    renderRankingTop10();
+    renderPartidas();
+    renderChart();
+  }
+
+  function renderStats() {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const reservasHoje = state.data.reservas.filter((r) => String(r.inicio).startsWith(hoje));
+    const cards = [
+      ['Total de alunos', state.data.alunos.length, 'fa-user-group'],
+      ['Turmas ativas', state.data.turmas.filter((t) => String(t.ativo) === 'true').length, 'fa-people-group'],
+      ['Quadras ocupadas hoje', new Set(reservasHoje.map((r) => r.quadra)).size, 'fa-table-tennis-paddle-ball'],
+      ['Próximas reservas', state.data.reservas.filter((r) => new Date(r.inicio) >= new Date()).length, 'fa-calendar-days'],
+      ['Partidas registradas', state.data.partidas.length, 'fa-trophy']
+    ];
+
+    statsCards.innerHTML = cards.map(([title, value, icon]) => `
+      <article class="card">
+        <p class="text-sm text-slate-500">${title}</p>
+        <div class="flex items-center justify-between mt-2">
+          <strong class="text-2xl">${value}</strong>
+          <i class="fa-solid ${icon} text-brand-500"></i>
+        </div>
+      </article>`).join('');
+  }
+
+  function renderAlunos() {
+    const term = (searchAlunos.value || '').toLowerCase();
+    const nivel = filterNivel.value;
+
+    const rows = state.data.alunos
+      .filter((a) => !nivel || a.nivel === nivel)
+      .filter((a) => JSON.stringify(a).toLowerCase().includes(term));
+
+    alunosTable.innerHTML = `<table><thead><tr>
+      <th>Nome</th><th>Telefone</th><th>Nível</th><th>Idade</th><th>Status</th>
+    </tr></thead><tbody>
+      ${rows.map((a) => `<tr><td>${a.nome}</td><td>${a.telefone}</td><td>${a.nivel}</td><td>${a.idade}</td><td>${a.status}</td></tr>`).join('') || '<tr><td colspan="5">Sem dados</td></tr>'}
+    </tbody></table>`;
+  }
+
+  function renderTurmas() {
+    turmasList.innerHTML = state.data.turmas.map((t) => {
+      const alunos = (t.alunosIds || '').split(',').filter(Boolean).length;
+      return `<div class="pill">
+        <div class="flex items-center justify-between">
+          <strong>${t.nome}</strong>
+          <span>${alunos}/${t.limiteAlunos || '-'} alunos</span>
+        </div>
+        <p class="text-sm text-slate-500">${t.professor} · ${t.horario} · ${t.diasSemana}</p>
+      </div>`;
+    }).join('') || '<p class="text-sm text-slate-500">Nenhuma turma cadastrada.</p>';
+  }
+
+  function renderReservas() {
+    const date = filterDateReserva.value;
+    const tipo = filterTipoReserva.value;
+
+    const rows = state.data.reservas
+      .filter((r) => !date || String(r.inicio).startsWith(date))
+      .filter((r) => !tipo || r.tipo === tipo)
+      .sort((a, b) => new Date(a.inicio) - new Date(b.inicio));
+
+    reservasCalendar.innerHTML = `<table><thead><tr>
+      <th>Quadra</th><th>Jogador</th><th>Início</th><th>Fim</th><th>Tipo</th><th>Status</th>
+    </tr></thead><tbody>
+      ${rows.map((r) => `<tr><td>${r.quadra}</td><td>${r.jogador}</td><td>${formatDateTime(r.inicio)}</td><td>${formatDateTime(r.fim)}</td><td>${r.tipo}</td><td>${r.status}</td></tr>`).join('') || '<tr><td colspan="6">Nenhuma reserva.</td></tr>'}
+    </tbody></table>`;
+  }
+
+  function renderRankingTop10() {
+    rankingTop10.innerHTML = state.data.ranking.slice(0, 10).map((r) => {
+      const aluno = state.data.alunos.find((a) => a.id === r.alunoId);
+      return `<div class="flex justify-between pill"><span>#${r.posicao} ${aluno?.nome || 'Jogador'}</span><span>${r.vitorias}V/${r.derrotas}D · ${r.aproveitamento}%</span></div>`;
+    }).join('') || '<p class="text-sm text-slate-500">Ranking vazio.</p>';
+  }
+
+  function renderPartidas() {
+    partidasList.innerHTML = state.data.partidas.slice(0, 10).map((p) => {
+      const desafiante = state.data.alunos.find((a) => a.id === p.desafianteId)?.nome || 'Jogador';
+      const desafiado = state.data.alunos.find((a) => a.id === p.desafiadoId)?.nome || 'Jogador';
+      const vencedor = state.data.alunos.find((a) => a.id === p.vencedorId)?.nome || 'Jogador';
+      return `<div class="pill">
+        <strong>${desafiante} vs ${desafiado}</strong>
+        <p class="text-sm text-slate-500">${p.placar} · ${p.dataPartida} · Vencedor: ${vencedor}</p>
+      </div>`;
+    }).join('') || '<p class="text-sm text-slate-500">Sem partidas registradas.</p>';
+  }
+
+  function renderChart() {
+    const ctx = document.getElementById('occupancyChart');
+    const labels = [];
+    const values = [];
+
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const iso = date.toISOString().slice(0, 10);
+      labels.push(iso.slice(5));
+      values.push(state.data.reservas.filter((r) => String(r.inicio).startsWith(iso)).length);
+    }
+
+    if (state.occupancyChart) state.occupancyChart.destroy();
+
+    state.occupancyChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{ label: 'Reservas', data: values, backgroundColor: '#0f766e' }]
+      },
+      options: { plugins: { legend: { display: false } } }
+    });
+  }
+
+  function openAlunoModal() {
+    openModal('Novo aluno', [
+      field('nome', 'Nome'), field('telefone', 'Telefone'),
+      field('nivel', 'Nível (iniciante/intermediário/avançado)'),
+      field('idade', 'Idade', 'number'), field('observacoes', 'Observações'),
+      selectField('status', 'Status', ['ativo', 'inativo'])
+    ], (payload) => {
+      runServer('saveAluno', payload, 'Aluno salvo com sucesso.');
+    });
+  }
+
+  function openTurmaModal() {
+    const alunoOptions = state.data.alunos.map((a) => `${a.id}|${a.nome}`).join('\n');
+    openModal('Nova turma', [
+      field('nome', 'Nome da turma'), field('professor', 'Professor'), field('horario', 'Horário fixo'),
+      field('diasSemana', 'Dias (ex: Seg,Qua,Sex)'), field('limiteAlunos', 'Limite', 'number'),
+      textareaField('alunosIds', `IDs dos alunos (id por vírgula):\n${alunoOptions}`),
+      selectField('ativo', 'Ativa', ['true', 'false'])
+    ], (payload) => runServer('saveTurma', { ...payload, alunosIds: payload.alunosIds.split(',').map((s) => s.trim()) }, 'Turma salva.'));
+  }
+
+  function openReservaModal() {
+    openModal('Nova reserva', [
+      field('quadra', 'Quadra (ex: Quadra 1)'), field('jogador', 'Nome do jogador'),
+      field('inicio', 'Início (YYYY-MM-DDTHH:MM)'), field('fim', 'Fim (YYYY-MM-DDTHH:MM)'),
+      selectField('tipo', 'Tipo', ['aula', 'jogo', 'livre']),
+      selectField('status', 'Status', ['Confirmado', 'Pendente', 'Cancelado']),
+      field('observacao', 'Observações')
+    ], (payload) => runServer('saveReserva', payload, 'Reserva salva.'));
+  }
+
+  function openPartidaModal() {
+    const ranking = state.data.ranking;
+    const opts = ranking.map((r) => {
+      const a = state.data.alunos.find((al) => al.id === r.alunoId);
+      return { id: r.alunoId, label: `#${r.posicao} ${a?.nome || r.alunoId}` };
+    });
+
+    openModal('Registrar partida', [
+      selectField('desafianteId', 'Desafiante', opts.map((o) => o.id), opts),
+      selectField('desafiadoId', 'Desafiado', opts.map((o) => o.id), opts),
+      selectField('vencedorId', 'Vencedor', opts.map((o) => o.id), opts),
+      field('placar', 'Placar (ex: 6/4 6/2)'),
+      field('dataPartida', 'Data (YYYY-MM-DD)')
+    ], (payload) => runServer('savePartida', payload, 'Partida registrada + ranking atualizado.'));
+  }
+
+  function openModal(title, fields, onSubmit) {
+    modalRoot.innerHTML = `<div class="modal-bg">
+      <form id="globalModalForm" class="card w-full max-w-xl space-y-3">
+        <div class="flex justify-between items-center">
+          <h3 class="section-title">${title}</h3>
+          <button type="button" class="btn-secondary" onclick="closeModal()">X</button>
+        </div>
+        ${fields.join('')}
+        <button class="btn-primary w-full">Salvar</button>
+      </form>
+    </div>`;
+
+    document.getElementById('globalModalForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const payload = Object.fromEntries(new FormData(e.target).entries());
+      onSubmit(payload);
+      closeModal();
+    });
+  }
+
+  function closeModal() { modalRoot.innerHTML = ''; }
+  function field(name, label, type = 'text') { return `<label class="block"><span class="text-sm">${label}</span><input class="input" type="${type}" name="${name}" required></label>`; }
+  function textareaField(name, label) { return `<label class="block"><span class="text-sm whitespace-pre-line">${label}</span><textarea class="input" rows="4" name="${name}"></textarea></label>`; }
+  function selectField(name, label, options, customLabels) {
+    return `<label class="block"><span class="text-sm">${label}</span><select class="input" name="${name}" required>
+      ${options.map((op, i) => `<option value="${op}">${customLabels ? customLabels[i].label : op}</option>`).join('')}
+    </select></label>`;
+  }
+
+  function runServer(method, payload, successMessage) {
+    google.script.run
+      .withSuccessHandler((res) => {
+        if (!res.ok) return alert(res.message || 'Erro');
+        alert(successMessage);
+        fetchInitialData();
+      })
+      .withFailureHandler(handleError)[method](state.token, payload);
+  }
+
+  function exportar(type) {
+    google.script.run.withSuccessHandler((rows) => {
+      const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `grandslam-${type}-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }).withFailureHandler(handleError).exportData(state.token, type);
+  }
+
+  function toggleTheme() {
+    document.documentElement.classList.toggle('dark');
+    localStorage.setItem('gramSlamDark', document.documentElement.classList.contains('dark') ? '1' : '0');
+  }
+
+  function handleError(err) {
+    alert(err.message || 'Erro inesperado');
+    if ((err.message || '').includes('Sessão expirada')) {
+      localStorage.removeItem('gramSlamToken');
+      state.token = '';
+      showLogin();
+    }
+  }
+
+  function formatDateTime(value) {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (isNaN(date.getTime())) return value;
+    return date.toLocaleString('pt-BR');
+  }
+</script>
